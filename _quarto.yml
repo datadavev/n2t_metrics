@@ -8,6 +8,8 @@ format:
     toc: true
     theme:
       - cosmo
+execute:
+  cache: true
 website:
   title: "N2T Metrics"
   sidebar:
@@ -17,5 +19,6 @@ website:
         text: Home
       - section: "2022"
         contents:
+          - august.qmd
           - september.qmd
           - october.qmd
