@@ -42,7 +42,7 @@ CN = sqlite3.connect(ANALYSIS_DB)
 ccodes = pd.read_csv("geo/country_codes.csv", quotechar='"')
 ccodes.rename(mapper={"Alpha-2 code":"country_code", "Alpha-3 code":"iso_a3"}, axis=1, inplace=True)
 ccodes = ccodes.apply(lambda x: x.str.strip(' "'))
-MONTH=9
+MONTH=10
 ```
 
 
