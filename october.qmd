@@ -1,0 +1,18 @@
+---
+title: "October"
+jupyter: python3
+execute:
+  echo: false
+format:
+  html:
+    toc: false
+    theme:
+      - cosmo
+fig-cap-location: top
+---
+
+```{python}
+MONTH=10
+```
+
+{{< include _report.qmd >}}

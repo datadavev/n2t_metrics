@@ -1,0 +1,21 @@
+project:
+  type: website
+  output-dir: docs
+toc: true
+number-sections: true
+format:
+  html:
+    toc: true
+    theme:
+      - cosmo
+website:
+  title: "N2T Metrics"
+  sidebar:
+    style: "docked"
+    contents: 
+      - href: index.qmd
+        text: Home
+      - section: "2022"
+        contents:
+          - september.qmd
+          - october.qmd

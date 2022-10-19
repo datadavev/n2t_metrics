@@ -109,6 +109,9 @@ class LogRecordManager:
             L.info("No match for request: %s", entry.request_line)
             return []
         id_scheme = m.group(2).lower().strip("/")
+        if ".php" in id_scheme:
+            L.info("Rejecting php match: %s", id_scheme)
+            return []
         id_value = m.group(3).strip("/")
         ua = entry.headers_in.get("User-Agent", "")
         uap = self.parse_ua(ua)
