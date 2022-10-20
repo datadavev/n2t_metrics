@@ -179,3 +179,23 @@ _ = wmerged.plot(column='n',
     "label": "Missing values",
   })
 ```
+
+```{python}
+#| label: count_browser
+#| fig-cap: Counts of browser family, client device
+sql = '''select count(*) as n, 
+browser_family, 
+device_brand
+from logs 
+where m=? 
+group by browser_family, device_brand
+order by n desc'''
+df = pd.read_sql_query(sql, CN, params=(MONTH,))
+itables.show(df,
+  scrollY="480px", 
+  scrollCollapse=True, 
+  paging=False,
+  dom='tpr',
+  classes=['compact','hover']
+)
+```
