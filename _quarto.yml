@@ -19,6 +19,8 @@ website:
         text: Home
       - section: "2022"
         contents:
+          - june.qmd
+          - july.qmd
           - august.qmd
           - september.qmd
           - october.qmd

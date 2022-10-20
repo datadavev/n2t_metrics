@@ -1,0 +1,18 @@
+---
+title: "June"
+jupyter: python3
+execute:
+  echo: false
+format:
+  html:
+    toc: false
+    theme:
+      - cosmo
+fig-cap-location: top
+---
+
+```{python}
+MONTH=6
+```
+
+{{< include _report.qmd >}}
