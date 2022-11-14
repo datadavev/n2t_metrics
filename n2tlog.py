@@ -1,4 +1,10 @@
+"""This is a simple linear log processor that parses raw logs and stores rows in an sqlite database.
+
+"""
+
+import datetime
 import functools
+import hashlib
 import logging
 import os
 import re
@@ -23,6 +29,10 @@ LOCAL_HOST = [
 L = logging.getLogger("n2tlog")
 
 
+def getRowId(t, ip, id_value):
+    h = hashlib.sha1(f'{t}{ip}{id_value}'.encode('utf8'))
+    return h.hexdigest()
+
 class LogRecordManager:
     def __init__(self, analysis_db=ANALYSIS_DB):
         os.makedirs(ANALYSIS_DIR, exist_ok=True)
@@ -31,6 +41,9 @@ class LogRecordManager:
         self.parser = apachelogs.LogParser(ACCESS_LOG_DEFINITION)
         # This re is used to match a request to scheme, value
         self.requestre = re.compile("^.*\s/(([a-zA-Z0-9./_]*):(.*))\s.*")
+
+    def close(self):
+        self.cn.close()
 
     @functools.cache
     def to_country(self, ip):
@@ -47,7 +60,7 @@ class LogRecordManager:
 
     def initialize_database(self):
         sql = """CREATE TABLE IF NOT EXISTS logs(
-            id BIGINT PRIMARY KEY,
+            id VARCHAR PRIMARY KEY,            
             t DATETIME,
             y INTEGER,
             m INTEGER,
@@ -80,6 +93,7 @@ class LogRecordManager:
     def addrows(self, rows):
         sql = (
             "INSERT INTO logs("
+            "id,"
             "t,y,m,d,msec,"
             "client_ip,"
             "id_scheme,id_value,"
@@ -87,7 +101,7 @@ class LogRecordManager:
             "browser_family,browser_major,"
             "device_brand,device_family,device_model,"
             "os_family,os_major) VALUES ("
-            "?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            "?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
         )
         csr = self.cn.cursor()
         try:
@@ -106,11 +120,11 @@ class LogRecordManager:
     def splitRecord(self, entry) -> list:
         m = self.requestre.search(urllib.parse.unquote_plus(entry.request_line))
         if m is None:
-            L.info("No match for request: %s", entry.request_line)
+            #L.info("No match for request: %s", entry.request_line)
             return []
         id_scheme = m.group(2).lower().strip("/")
         if ".php" in id_scheme:
-            L.info("Rejecting php match: %s", id_scheme)
+            #L.info("Rejecting php match: %s", id_scheme)
             return []
         id_value = m.group(3).strip("/")
         ua = entry.headers_in.get("User-Agent", "")
@@ -118,6 +132,7 @@ class LogRecordManager:
         ts = entry.request_time
         msec = ts.microsecond//1000 + ts.second*1000 + ts.minute*60*1000 + ts.hour*60*60*1000
         r = [
+            getRowId(entry.request_time, entry.remote_host, id_value),
             entry.request_time,
             entry.request_time.year,
             entry.request_time.month,
@@ -137,27 +152,104 @@ class LogRecordManager:
         ]
         return r
 
+    def oldestLogRecord(self):
+        sql = "SELECT MAX(t) FROM logs;"
+        csr = self.cn.cursor()
+        res = csr.execute(sql).fetchone()
+        return datetime.datetime.fromisoformat(res[0])
+
     def parse(self, inf, max_rows=-1):
         n = 0
-        batch_size = 100000
+        batch_size = 10000
         rows = []
+        ids = []
+        oldest_entry = self.oldestLogRecord()
+        L.info("Oldest record = %s", oldest_entry)
+        nparsed = 0
         for entry in self.parser.parse_lines(inf):
             # Redirect and not localhost
-            if entry.final_status == 302 and entry.remote_host not in LOCAL_HOST:
-                n += 1
-                record = self.splitRecord(entry)
-                if len(record) > 0:
-                    rows.append(record)
-                if n % batch_size == 0:
-                    L.info("Processed %s rows", n)
-                    self.addrows(rows)
-                    rows = []
-                if max_rows > 0 and n > max_rows:
-                    rows = []
-                    break
-        self.addrows(rows)
+            if entry.request_time >= oldest_entry:
+                if entry.final_status in [302, 303] and entry.remote_host not in LOCAL_HOST:
+                    record = self.splitRecord(entry)
+                    if len(record) > 0:
+                        if record[0] not in ids:
+                            rows.append(record)
+                            ids.append(record[0])
+                            n += 1
+                            if n % batch_size == 0:
+                                L.info("Processed %s rows", n)
+                                self.addrows(rows)
+                                rows = []
+                                ids = []
+                    if max_rows > 0 and n > max_rows:
+                        rows = []
+                        break
+            nparsed += 1
+            if nparsed % batch_size == 0:
+                L.info("Parsed %s rows", nparsed)
+        if len(rows) > 0:
+            self.addrows(rows)
         L.info("Processed %s rows", n)
         L.info("Done.")
+
+
+def rekeylog(dbsrc, dbdest):
+    db0 = sqlite3.connect(dbsrc)
+    cur0 = db0.cursor()
+    db1 = sqlite3.connect(dbdest)
+    cur1 = db1.cursor()
+    sqls = "SELECT * FROM logs"
+    sqld = (
+        "INSERT INTO logs("
+        "id,"
+        "t,y,m,d,msec,"
+        "client_ip,"
+        "id_scheme,id_value,"
+        "country_code,"
+        "browser_family,browser_major,"
+        "device_brand,device_family,device_model,"
+        "os_family,os_major) VALUES ("
+        "?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+    )
+    counter = 0
+    rowset = []
+    ids = []
+    for row in cur0.execute(sqls):
+        nrow = [
+            getRowId(row[1], row[6], row[8]),
+            *row[1:]
+        ]
+        if nrow[0] not in ids:
+            rowset.append(nrow)
+            ids.append(nrow[0])
+        counter += 1
+        if counter % 10000 == 0:
+            print(f'{counter} rows processed...')
+            try:
+                cur1.executemany(sqld, rowset)
+                db1.commit()
+            except sqlite3.IntegrityError as e:
+                L.warning(e)
+                for nrow in rowset:
+                    try:
+                        cur1.execute(sqld, nrow)
+                        db1.commit()
+                    except sqlite3.IntegrityError as e:
+                        L.error(e)
+            rowset = []
+            ids = []
+        #try:
+        #    cur1.execute(sqld, nrow)
+        #    db1.commit()
+        #except sqlite3.IntegrityError as e:
+        #    L.warning(e)
+    for nrow in rowset:
+        try:
+            cur1.execute(sqld, nrow)
+            db1.commit()
+        except sqlite3.IntegrityError as e:
+            L.error(e)
+    print(f'{counter} rows processed')
 
 
 def parseLog(fname, dbname, max_rows=-1):
@@ -178,6 +270,7 @@ def parseLog(fname, dbname, max_rows=-1):
 @click.argument("log_file")
 @click.option("-d","--database", default=ANALYSIS_DB, help="Name of sqlite database")
 @click.option("-m","--max_rows", default=-1, help="Maximum rows to process (default=all)")
+
 def main(log_file, database, max_rows):
     logging.basicConfig(level=logging.INFO)
     parseLog(log_file, database)
@@ -186,3 +279,9 @@ def main(log_file, database, max_rows):
 if __name__ == "__main__":
     # feed me like: ssh -t n2t-prod "cat /apps/n2t/sv/cv2/apache2/logs/SOME-ACCESS-LOG" | python n2tlog.py -
     main()
+    #dbsrc = './analysis/logs.sqlite3'
+    #dbdst = './analysis/logs1.sqlite3'
+    #mgr = LogRecordManager(dbdst)
+    #mgr.initialize_database()
+    #mgr.close()
+    #rekeylog(dbsrc,dbdst)

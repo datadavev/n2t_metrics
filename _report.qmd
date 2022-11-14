@@ -71,7 +71,7 @@ _ = df.plot(
 #| label: count_scheme
 #| fig-cap: Resolve requests for different identifier schemes. (Note that a few false "schemes" may appear in the log processing output, this is a bug in the log processor).
 # counts per scheme
-sql = '''select id_scheme as Scheme,
+sql = '''select '<a target="_blank" href="https://n2t.net/'||id_scheme||':">'||id_scheme||'</a>'  as Scheme,
   count(*) as Resolutions
   from logs
   where m=?

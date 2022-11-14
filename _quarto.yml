@@ -9,7 +9,7 @@ format:
     theme:
       - cosmo
 execute:
-  cache: false
+  cache: true
 website:
   title: "N2T Metrics"
   sidebar:
