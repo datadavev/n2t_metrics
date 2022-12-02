@@ -13,6 +13,7 @@ import urllib.parse
 
 import apachelogs
 import click
+import clickhouse_driver
 import IP2Location
 import sqlite3
 import ua_parser.user_agent_parser
@@ -251,6 +252,57 @@ def rekeylog(dbsrc, dbdest):
             L.error(e)
     print(f'{counter} rows processed')
 
+def toClickhouse():
+    '''Load the sqlite content to clickhouse
+    '''
+    def vs(v):
+        if v is None:
+            return ''
+        return v
+
+    sdb = sqlite3.connect("analysis/logs.sqlite3")
+    cc = clickhouse_driver.Client(host='localhost')
+    scsr = sdb.cursor()
+    rows = scsr.execute("SELECT * FROM LOGS")
+    batch = []
+    n = 0
+    for row in rows:
+        n += 1
+        r = {'id':row[0],
+             't': datetime.datetime.fromisoformat(row[1]),
+             'y': int(row[2]),
+             'm': int(row[3]),
+             'd': int(row[4]),
+             'msec': int(row[5]),
+             'client_ip': row[6],
+             'id_scheme': vs(row[7]),
+             'id_value': vs(row[8]),
+             'country_code': vs(row[9]),
+             'browser_family': vs(row[10]),
+             'browser_major': vs(row[11]),
+             'device_brand': vs(row[12]),
+             'device_family': vs(row[13]),
+             'device_model': vs(row[14]),
+             'os_family': vs(row[15]),
+             'os_major': vs(row[16])
+             }
+        batch.append(r)
+        if n % 100000 == 0:
+            cc.execute(("INSERT INTO n2tlogs.logs ("
+                        "id,t,y,m,d,msec,client_ip,id_scheme,id_value,country_code,browser_family,browser_major,"
+                        "device_brand,device_family,device_model,os_family,os_major) "
+                        "VALUES "
+                        ), batch)
+            print(f"Inserted {n} rows")
+            batch = []
+    cc.execute(("INSERT INTO n2tlogs.logs ("
+                "id,t,y,m,d,msec,client_ip,id_scheme,id_value,country_code,browser_family,browser_major,"
+                "device_brand,device_family,device_model,os_family,os_major) "
+                "VALUES "
+                ), batch)
+    print(f"Inserted {n} rows")
+    sdb.close()
+
 
 def parseLog(fname, dbname, max_rows=-1):
     inf = None
@@ -279,6 +331,7 @@ def main(log_file, database, max_rows):
 if __name__ == "__main__":
     # feed me like: ssh -t n2t-prod "cat /apps/n2t/sv/cv2/apache2/logs/SOME-ACCESS-LOG" | python n2tlog.py -
     main()
+    #toClickhouse()
     #dbsrc = './analysis/logs.sqlite3'
     #dbdst = './analysis/logs1.sqlite3'
     #mgr = LogRecordManager(dbdst)

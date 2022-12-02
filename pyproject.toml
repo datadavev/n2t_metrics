@@ -13,6 +13,7 @@ apachelogs = "^0.6.0"
 IP2Location = "^8.9.0"
 ua-parser = "^0.16.1"
 click = "^8.1.3"
+clickhouse-driver = "^0.2.4"
 
 
 [tool.poetry.group.dev.dependencies]
